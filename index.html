@@ -27,18 +27,16 @@
 </div>
 <canvas id="canvas"></canvas>
 <script>
-// Classic Perlin noise implementation by Stefan Gustavson (adapted for 2D)
 class PerlinNoise {
-  constructor() {
+  constructor(seed = Math.random()) {
     this.permutation = [];
     for (let i=0; i<256; i++) this.permutation[i] = i;
     for (let i=0; i<256; i++) {
-      let j = Math.floor(Math.random() * (256 - i)) + i;
+      let j = (i + Math.floor(seed * (256 - i))) % 256;
       [this.permutation[i], this.permutation[j]] = [this.permutation[j], this.permutation[i]];
     }
     this.permutation = this.permutation.concat(this.permutation);
   }
-
   fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
   lerp(t, a, b) { return a + t * (b - a); }
   grad(hash, x, y) {
@@ -47,36 +45,33 @@ class PerlinNoise {
     let v = h < 2 ? y : x;
     return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
   }
-
   noise(x, y) {
     let X = Math.floor(x) & 255;
     let Y = Math.floor(y) & 255;
     let xf = x - Math.floor(x);
     let yf = y - Math.floor(y);
-
     let u = this.fade(xf);
     let v = this.fade(yf);
-
     let aa = this.permutation[this.permutation[X] + Y];
     let ab = this.permutation[this.permutation[X] + Y + 1];
     let ba = this.permutation[this.permutation[X + 1] + Y];
     let bb = this.permutation[this.permutation[X + 1] + Y + 1];
-
     let x1 = this.lerp(u, this.grad(aa, xf, yf), this.grad(ba, xf -1, yf));
     let x2 = this.lerp(u, this.grad(ab, xf, yf -1), this.grad(bb, xf -1, yf -1));
-    return (this.lerp(v, x1, x2) + 1) / 2; // normalize to [0,1]
+    return (this.lerp(v, x1, x2) + 1) / 2;
   }
 }
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
-let gridSize = 120; // grid width and height (can increase)
+let gridSize = 120;
 let tileSize = 16;
 let scale = 1;
 let offsetX = 0, offsetY = 0;
 let isDragging = false, dragStartX, dragStartY;
 let grid = [];
+let currentNoise;
 
 const terrainColors = {
   water: "#1b355e",
@@ -87,21 +82,18 @@ const terrainColors = {
   lava: "#bb2200"
 };
 
-const noise = new PerlinNoise();
-
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   draw();
 }
-
 window.addEventListener('resize', resize);
 
 function generate() {
+  currentNoise = new PerlinNoise(Math.random()); // new seed every time
   grid = [];
 
-  // Parameters for noise scaling
-  const islandScale = 3; // controls island size & shape
+  const islandScale = 4; // island smaller so doesn't touch edge
   const lavaFreq = 15;
   const jungleFreq = 7;
   const grassFreq = 10;
@@ -109,37 +101,29 @@ function generate() {
   for (let y=0; y<gridSize; y++) {
     let row = [];
     for (let x=0; x<gridSize; x++) {
-      // normalize coords to center island at 0,0 from -1 to 1
-      let nx = (x / gridSize) * 2 - 1;
-      let ny = (y / gridSize) * 2 - 1;
+      let nx = (x / gridSize - 0.5) * 1.6; // island smaller by scaling coords
+      let ny = (y / gridSize - 0.5) * 1.6;
       let dist = Math.sqrt(nx*nx + ny*ny);
 
-      // Island shape: circle falloff from center
       let islandMask = 1 - dist;
       if (islandMask < 0) islandMask = 0;
 
-      // Base height map with Perlin noise + island mask
-      let baseHeight = islandMask + noise.noise(nx * islandScale + 1000, ny * islandScale + 1000) * 0.3;
+      let baseHeight = islandMask + currentNoise.noise(nx * islandScale + 1000, ny * islandScale + 1000) * 0.3;
 
       if (baseHeight < 0.1) {
         row.push("water");
         continue;
       }
 
-      // Lava rivers: thin veins of lava inside island
-      let lavaNoise = noise.noise(nx * lavaFreq + 2000, ny * lavaFreq + 2000);
-      let lavaThreshold = 0.85;
-      let isLava = lavaNoise > lavaThreshold && baseHeight > 0.3;
+      let lavaNoise = currentNoise.noise(nx * lavaFreq + 2000, ny * lavaFreq + 2000);
+      let isLava = lavaNoise > 0.85 && baseHeight > 0.3;
 
-      // Jungle areas: high noise + near edges of island
-      let jungleNoise = noise.noise(nx * jungleFreq + 3000, ny * jungleFreq + 3000);
-      let isJungle = jungleNoise > 0.6 && baseHeight > 0.4 && baseHeight < 0.75 && dist < 0.8;
+      let jungleNoise = currentNoise.noise(nx * jungleFreq + 3000, ny * jungleFreq + 3000);
+      let isJungle = jungleNoise > 0.6 && baseHeight > 0.4 && baseHeight < 0.75;
 
-      // Grass patches: medium noise and moderate height
-      let grassNoise = noise.noise(nx * grassFreq + 4000, ny * grassFreq + 4000);
-      let isGrass = grassNoise > 0.4 && baseHeight > 0.3 && baseHeight < 0.75 && dist < 0.85;
+      let grassNoise = currentNoise.noise(nx * grassFreq + 4000, ny * grassFreq + 4000);
+      let isGrass = grassNoise > 0.4 && baseHeight > 0.3 && baseHeight < 0.75;
 
-      // Beach: edge of island (height near 0.1–0.2) and near water
       let isBeach = baseHeight > 0.09 && baseHeight < 0.18 && dist > 0.7;
 
       if (isLava) row.push("lava");
@@ -154,26 +138,20 @@ function generate() {
 }
 
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+  ctx.clearRect(0,0,canvas.width,canvas.height);
   for (let y=0; y<gridSize; y++) {
     for (let x=0; x<gridSize; x++) {
-      const tile = grid[y][x];
-      const drawX = x * tileSize * scale + offsetX;
-      const drawY = y * tileSize * scale + offsetY;
-
+      let tile = grid[y][x];
+      let drawX = x * tileSize * scale + offsetX;
+      let drawY = y * tileSize * scale + offsetY;
       if (
-        drawX + tileSize * scale < 0 ||
-        drawY + tileSize * scale < 0 ||
-        drawX > canvas.width ||
-        drawY > canvas.height
+        drawX + tileSize*scale < 0 || drawY + tileSize*scale < 0 ||
+        drawX > canvas.width || drawY > canvas.height
       ) continue;
-
       ctx.fillStyle = terrainColors[tile];
-      ctx.fillRect(drawX, drawY, tileSize * scale, tileSize * scale);
-
+      ctx.fillRect(drawX, drawY, tileSize*scale, tileSize*scale);
       ctx.strokeStyle = "rgba(0,0,0,0.2)";
-      ctx.strokeRect(drawX, drawY, tileSize * scale, tileSize * scale);
+      ctx.strokeRect(drawX, drawY, tileSize*scale, tileSize*scale);
     }
   }
 }
@@ -184,17 +162,14 @@ canvas.addEventListener('mousedown', (e) => {
   dragStartY = e.clientY - offsetY;
   canvas.style.cursor = 'grabbing';
 });
-
 canvas.addEventListener('mouseup', () => {
   isDragging = false;
   canvas.style.cursor = 'grab';
 });
-
 canvas.addEventListener('mouseleave', () => {
   isDragging = false;
   canvas.style.cursor = 'grab';
 });
-
 canvas.addEventListener('mousemove', (e) => {
   if (isDragging) {
     offsetX = e.clientX - dragStartX;
@@ -202,16 +177,8 @@ canvas.addEventListener('mousemove', (e) => {
     draw();
   }
 });
-
-function zoomIn() {
-  scale *= 1.2;
-  draw();
-}
-
-function zoomOut() {
-  scale /= 1.2;
-  draw();
-}
+function zoomIn() { scale *= 1.2; draw(); }
+function zoomOut() { scale /= 1.2; draw(); }
 
 generate();
 resize();
