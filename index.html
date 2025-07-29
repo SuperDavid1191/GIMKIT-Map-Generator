@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gimkit Style Terrain Generator</title>
+<title>The Shattered Isles Generator</title>
 <style>
   body { margin: 0; background: #111; color: white; font-family: sans-serif; }
   canvas { display: block; background: #222; cursor: grab; }
@@ -27,25 +27,47 @@
 </div>
 <canvas id="canvas"></canvas>
 <script>
+// Simplex noise (Perlin alternative) for natural terrain
+class SimplexNoise {
+  constructor(seed=Math.random()) {
+    this.p = new Uint8Array(256);
+    for (let i=0; i<256; i++) this.p[i] = i;
+    for (let i=0; i<256; i++) {
+      let r = i + Math.floor(seed * (256 - i));
+      [this.p[i], this.p[r]] = [this.p[r], this.p[i]];
+    }
+  }
+  noise(x, y) {
+    let X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    let u = x*x*(3-2*x), v = y*y*(3-2*y);
+    let A = this.p[X]+Y, B = this.p[X+1]+Y;
+    return this.lerp(v, this.lerp(u, this.grad(this.p[A],x,y), this.grad(this.p[B],x-1,y)),
+                        this.lerp(u, this.grad(this.p[A+1],x,y-1), this.grad(this.p[B+1],x-1,y-1)));
+  }
+  grad(hash, x, y) {
+    return ((hash&1)==0 ? x : -x) + ((hash&2)==0 ? y : -y);
+  }
+  lerp(t,a,b) { return a + t*(b - a); }
+}
+
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-
-let gridSize = 100; // change to 500 if you want
-let tileSize = 16; // base tile size
-let scale = 1;     // zoom level
-
+let gridSize = 100; // you can change to 500 later
+let tileSize = 16;
+let scale = 1;
 let offsetX = 0, offsetY = 0;
-let isDragging = false;
-let dragStartX, dragStartY;
-
-const terrainTypes = [
-  { name: "grass", color: "#3a5" },
-  { name: "stone", color: "#777" },
-  { name: "snow", color: "#eee" },
-  { name: "sand", color: "#cc9" }
-];
-
+let isDragging = false, dragStartX, dragStartY;
 let grid = [];
+
+const terrainColors = {
+  water: "#223",
+  sand: "#cc9",
+  grass: "#3a5",
+  jungle: "#264",
+  rock: "#777",
+  volcanic: "#a33"
+};
 
 function resize() {
   canvas.width = window.innerWidth;
@@ -56,12 +78,23 @@ function resize() {
 window.addEventListener('resize', resize);
 
 function generate() {
+  let noise = new SimplexNoise();
   grid = [];
   for (let y=0; y<gridSize; y++) {
     let row = [];
     for (let x=0; x<gridSize; x++) {
-      const t = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
-      row.push(t);
+      let nx = x/gridSize - 0.5, ny = y/gridSize - 0.5;
+      let d = Math.sqrt(nx*nx + ny*ny) * 2; // distance from center
+      let e = (1 - d) + noise.noise(x/20, y/20)*0.5; // island shape
+      let value = e;
+
+      let terrain = "water";
+      if (value > 0.4) terrain = "volcanic";
+      else if (value > 0.3) terrain = "rock";
+      else if (value > 0.2) terrain = "jungle";
+      else if (value > 0.1) terrain = "grass";
+      else if (value > 0.05) terrain = "sand";
+      row.push(terrain);
     }
     grid.push(row);
   }
@@ -70,19 +103,14 @@ function generate() {
 
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  const visibleTilesX = Math.ceil(canvas.width / (tileSize * scale));
-  const visibleTilesY = Math.ceil(canvas.height / (tileSize * scale));
-
   for (let y=0; y<gridSize; y++) {
     for (let x=0; x<gridSize; x++) {
-      const tile = grid[y][x];
-      const drawX = (x * tileSize * scale) + offsetX;
-      const drawY = (y * tileSize * scale) + offsetY;
-      if (
-        drawX + tileSize*scale < 0 || drawY + tileSize*scale < 0 ||
-        drawX > canvas.width || drawY > canvas.height
-      ) continue;
-      ctx.fillStyle = tile.color;
+      let drawX = (x * tileSize * scale) + offsetX;
+      let drawY = (y * tileSize * scale) + offsetY;
+      if (drawX + tileSize*scale < 0 || drawY + tileSize*scale < 0 ||
+          drawX > canvas.width || drawY > canvas.height) continue;
+      let terrain = grid[y][x];
+      ctx.fillStyle = terrainColors[terrain];
       ctx.fillRect(drawX, drawY, tileSize*scale, tileSize*scale);
       ctx.strokeStyle = "rgba(0,0,0,0.2)";
       ctx.strokeRect(drawX, drawY, tileSize*scale, tileSize*scale);
