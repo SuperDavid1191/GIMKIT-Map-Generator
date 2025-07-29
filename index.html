@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gimkit Style Terrain Generator</title>
+<style>
+  body { margin: 0; background: #111; color: white; font-family: sans-serif; }
+  canvas { display: block; background: #222; cursor: grab; }
+  #controls {
+    position: fixed; top: 10px; left: 10px; z-index: 10;
+    background: rgba(0,0,0,0.7); padding: 8px; border-radius: 8px;
+  }
+  button {
+    margin: 2px; padding: 4px 8px;
+    font-size: 14px; border: none; border-radius: 4px;
+    background: #444; color: white; cursor: pointer;
+  }
+  button:hover { background: #666; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <button onclick="zoomIn()">Zoom In</button>
+  <button onclick="zoomOut()">Zoom Out</button>
+  <button onclick="generate()">Regenerate</button>
+</div>
+<canvas id="canvas"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let gridSize = 100; // change to 500 if you want
+let tileSize = 16; // base tile size
+let scale = 1;     // zoom level
+
+let offsetX = 0, offsetY = 0;
+let isDragging = false;
+let dragStartX, dragStartY;
+
+const terrainTypes = [
+  { name: "grass", color: "#3a5" },
+  { name: "stone", color: "#777" },
+  { name: "snow", color: "#eee" },
+  { name: "sand", color: "#cc9" }
+];
+
+let grid = [];
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  draw();
+}
+
+window.addEventListener('resize', resize);
+
+function generate() {
+  grid = [];
+  for (let y=0; y<gridSize; y++) {
+    let row = [];
+    for (let x=0; x<gridSize; x++) {
+      const t = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
+      row.push(t);
+    }
+    grid.push(row);
+  }
+  draw();
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const visibleTilesX = Math.ceil(canvas.width / (tileSize * scale));
+  const visibleTilesY = Math.ceil(canvas.height / (tileSize * scale));
+
+  for (let y=0; y<gridSize; y++) {
+    for (let x=0; x<gridSize; x++) {
+      const tile = grid[y][x];
+      const drawX = (x * tileSize * scale) + offsetX;
+      const drawY = (y * tileSize * scale) + offsetY;
+      if (
+        drawX + tileSize*scale < 0 || drawY + tileSize*scale < 0 ||
+        drawX > canvas.width || drawY > canvas.height
+      ) continue;
+      ctx.fillStyle = tile.color;
+      ctx.fillRect(drawX, drawY, tileSize*scale, tileSize*scale);
+      ctx.strokeStyle = "rgba(0,0,0,0.2)";
+      ctx.strokeRect(drawX, drawY, tileSize*scale, tileSize*scale);
+    }
+  }
+}
+
+canvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  dragStartX = e.clientX - offsetX;
+  dragStartY = e.clientY - offsetY;
+  canvas.style.cursor = "grabbing";
+});
+canvas.addEventListener('mouseup', () => {
+  isDragging = false;
+  canvas.style.cursor = "grab";
+});
+canvas.addEventListener('mouseleave', () => {
+  isDragging = false;
+  canvas.style.cursor = "grab";
+});
+canvas.addEventListener('mousemove', (e) => {
+  if (isDragging) {
+    offsetX = e.clientX - dragStartX;
+    offsetY = e.clientY - dragStartY;
+    draw();
+  }
+});
+
+function zoomIn() {
+  scale *= 1.2;
+  draw();
+}
+function zoomOut() {
+  scale /= 1.2;
+  draw();
+}
+
+generate();
+resize();
+</script>
+</body>
+</html>
